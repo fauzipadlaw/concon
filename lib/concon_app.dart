@@ -1,4 +1,5 @@
 import 'package:concon/components/footer.dart';
+import 'package:concon/components/scan_text.dart';
 import 'package:concon/models/search.dart';
 import 'package:concon/models/suggestion.dart';
 import 'package:concon/requests/requests.dart';
@@ -17,6 +18,7 @@ class ConconApp extends StatefulWidget {
 class _ConconAppState extends State<ConconApp> {
   List<SearchFieldListItem<SuggestionData>> suggestions = [];
   TextEditingController textController = TextEditingController();
+  final focus = FocusNode();
 
   getSuggestionData(String query) async {
     SuggestionDataModel? suggestionModel = await getSuggestions(query);
@@ -32,6 +34,7 @@ class _ConconAppState extends State<ConconApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(
@@ -54,20 +57,27 @@ class _ConconAppState extends State<ConconApp> {
                       ),
                     ),
                   ),
-                  const Text(
-                    "Selamat datang di ConCon",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text(
-                    "ConCon adalah aplikasi untuk mengecek suatu merek adalah pendukung pendudukan Israel atau tidak.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14),
-                  )
+                  if (!(MediaQuery.of(context).viewInsets.bottom > 0))
+                    const Text(
+                      "Selamat datang di ConCon",
+                      textAlign: TextAlign.center,
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  if (!(MediaQuery.of(context).viewInsets.bottom > 0))
+                    const Text(
+                      "ConCon adalah aplikasi untuk mengecek suatu merek adalah pendukung pendudukan ilegal Israel terhadap Palestina atau tidak.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14),
+                    )
                 ],
               ),
             ),
-            const Spacer(),
+            if (!(MediaQuery.of(context).viewInsets.bottom > 0)) const Spacer(),
+            if (MediaQuery.of(context).viewInsets.bottom > 0)
+              const SizedBox(
+                height: 24,
+              ),
             Center(
               child: SearchField<SuggestionData>(
                 controller: textController,
@@ -75,6 +85,7 @@ class _ConconAppState extends State<ConconApp> {
                   getSuggestionData(query);
                   return null;
                 },
+                suggestionDirection: SuggestionDirection.down,
                 key: const Key('searchfield'),
                 hint: 'Cari merek',
                 searchStyle: TextStyle(
@@ -91,7 +102,20 @@ class _ConconAppState extends State<ConconApp> {
                       borderSide: BorderSide(color: Colors.red),
                     ),
                     suffixIcon: InkWell(
-                      onTap: () {},
+                      onTap: () async {
+                        var result = await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (BuildContext context) => const ScanText(),
+                          ),
+                        );
+
+                        if (result is String) {
+                          if (result.trim() != '') {
+                            textController.text = result;
+                            await checkBrandStatus();
+                          }
+                        }
+                      },
                       child: const Icon(Icons.camera_alt),
                     )),
                 maxSuggestionsInViewPort: 6,
@@ -100,62 +124,24 @@ class _ConconAppState extends State<ConconApp> {
                   fontSize: 18,
                   color: Colors.black.withOpacity(0.8),
                 ),
-                suggestionAction: SuggestionAction.unfocus,
                 suggestionsDecoration: SuggestionDecoration(
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     border: Border.all(color: Colors.grey.withOpacity(0.8)),
                     borderRadius: const BorderRadius.all(Radius.circular(10))),
                 suggestions: suggestions,
-                suggestionState: Suggestion.expand,
+                suggestionItemDecoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    shape: BoxShape.rectangle,
+                    border: Border.all(
+                        color: Colors.transparent,
+                        style: BorderStyle.solid,
+                        width: 1.0)),
                 onSuggestionTap: (SearchFieldListItem<SuggestionData> x) async {
-                  QuickAlert.show(
-                    context: context,
-                    type: QuickAlertType.loading,
-                    title: 'Memuat',
-                    text: 'Memeriksa Data',
-                    disableBackBtn: true,
-                  );
-                  SearchModel? searchMd =
-                      await getBrandStatus(textController.text, "Keyword")
-                          .whenComplete(() => Navigator.of(context).pop());
-                  if (searchMd != null) {
-                    Search? search = searchMd.data;
-
-                    if (search != null) {
-                      if (!mounted) return;
-                      if (search.id == "0") {
-                        QuickAlert.show(
-                          context: context,
-                          type: QuickAlertType.error,
-                          title: search.title,
-                          text: 'Data tentang merek ini tidak ditemukan.',
-                        );
-                      } else {
-                        if (search.isProIsrael == "1") {
-                          QuickAlert.show(
-                            context: context,
-                            type: QuickAlertType.warning,
-                            title: search.title,
-                            text:
-                                'Merek ini MENDUKUNG pendudukan ilegal Israel terhadap Palestina.',
-                          );
-                        } else {
-                          QuickAlert.show(
-                            context: context,
-                            type: QuickAlertType.success,
-                            title: search.title,
-                            text:
-                                'Merek ini TIDAK mendukung pendudukan ilegal Israel terhadap Palestina.',
-                          );
-                        }
-                      }
-                    }
-                  }
-                  setState(() {
-                    textController.value = TextEditingValue.empty;
-                    suggestions = [];
-                  });
+                  await checkBrandStatus();
                 },
+                suggestionAction: SuggestionAction.next,
+                textInputAction: TextInputAction.done,
+                focusNode: focus,
               ),
             ),
             const Spacer(),
@@ -165,5 +151,54 @@ class _ConconAppState extends State<ConconApp> {
       ),
       persistentFooterButtons: [Footer()],
     );
+  }
+
+  Future<void> checkBrandStatus() async {
+    QuickAlert.show(
+      context: context,
+      type: QuickAlertType.loading,
+      title: 'Memuat',
+      text: 'Memeriksa Data',
+      disableBackBtn: true,
+    );
+    SearchModel? searchMd = await getBrandStatus(textController.text, "Keyword")
+        .whenComplete(() => Navigator.of(context).pop());
+    if (searchMd != null) {
+      Search? search = searchMd.data;
+
+      if (search != null) {
+        if (!mounted) return;
+        if (search.id == "0") {
+          QuickAlert.show(
+            context: context,
+            type: QuickAlertType.error,
+            title: search.title,
+            text: 'Data tentang merek ini TIDAK DITEMUKAN.',
+          );
+        } else {
+          if (search.isProIsrael == "1") {
+            QuickAlert.show(
+              context: context,
+              type: QuickAlertType.warning,
+              title: search.title,
+              text:
+                  'Merek ini MENDUKUNG pendudukan ilegal Israel terhadap Palestina.',
+            );
+          } else {
+            QuickAlert.show(
+              context: context,
+              type: QuickAlertType.success,
+              title: search.title,
+              text:
+                  'Merek ini TIDAK mendukung pendudukan ilegal Israel terhadap Palestina.',
+            );
+          }
+        }
+      }
+    }
+    setState(() {
+      textController.value = TextEditingValue.empty;
+      suggestions = [];
+    });
   }
 }
